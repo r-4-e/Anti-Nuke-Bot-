@@ -1,6 +1,8 @@
 import discord
 import asyncio
 import os
+from flask import Flask
+from threading import Thread
 from discord.ext import commands
 
 # ===== LOAD TOKEN FROM ENV =====
@@ -9,6 +11,23 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 if TOKEN is None:
     raise ValueError("No DISCORD_TOKEN found in environment variables.")
 
+# ===== LOAD PORT FOR RENDER =====
+PORT = int(os.environ.get("PORT", 10000))
+
+# ===== WEB SERVER (REQUIRED FOR RENDER) =====
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return "Bot is running."
+
+def run_web():
+    app.run(host="0.0.0.0", port=PORT)
+
+def keep_alive():
+    thread = Thread(target=run_web)
+    thread.start()
+    
 # ===== INTENTS =====
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
@@ -105,4 +124,6 @@ async def on_member_join(member):
         break  # stop after matching entry
 
 # ===== RUN =====
+keep_alive()
 bot.run(TOKEN)
+            
