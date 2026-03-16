@@ -1,9 +1,7 @@
 import discord
 import asyncio
 import os
-from flask import Flask
-from threading import Thread
-from discord.ext import commands
+import json
 from discord import app_commands
 from colorama import Fore, init
 
@@ -16,35 +14,33 @@ p = Fore.MAGENTA
 s = Fore.CYAN
 wh = Fore.WHITE
 
-# ===== LOAD TOKEN FROM ENV =====
+# ===== LOAD TOKEN =====
 TOKEN = os.getenv("DISCORD_TOKEN")
-
 if TOKEN is None:
-    raise ValueError("No DISCORD_TOKEN found in environment variables.")
+    raise ValueError("No DISCORD_TOKEN found.")
 
-# ===== LOAD PORT FOR RENDER =====
-PORT = int(os.environ.get("PORT", 10000))
+# ================= INTENTS =================
+intents = discord.Intents.default()
+intents.members = True
+intents.guilds = True
 
-# ===== WEB SERVER (REQUIRED FOR RENDER) =====
-app = Flask(__name__)
-
-@app.route("/")
-def home():
-    return "Bot is running."
-
-def run_web():
-    app.run(host="0.0.0.0", port=PORT)
-
-def keep_alive():
-    thread = Thread(target=run_web)
-    thread.start()
-    
-# ================= INTENTS & BOT =================
-intents = discord.Intents.all()
 bot = discord.Client(intents=intents)
 tree = app_commands.CommandTree(bot)
-# ================= DATA STRUCTURES =================
-whitelist = set()
+
+# ================= DATA =================
+whitelist_file = "whitelist.json"
+
+def load_whitelist():
+    if os.path.exists(whitelist_file):
+        with open(whitelist_file, "r") as f:
+            return set(json.load(f))
+    return set()
+
+def save_whitelist():
+    with open(whitelist_file, "w") as f:
+        json.dump(list(whitelist), f)
+
+whitelist = load_whitelist()
 welcome_channels = {}
 farewell_channels = {}
 invite_cache = {}
@@ -54,53 +50,58 @@ async def ban_with_retry(guild, target, reason, tries=3):
     for attempt in range(1, tries + 1):
         try:
             await guild.ban(target, reason=reason)
-            print(f"[SUCCESS] Banned {target} on attempt {attempt}")
+            print(f"[SUCCESS] Banned {target}")
+            return
+        except discord.Forbidden:
+            print("[ERROR] Missing permission to ban.")
             return
         except Exception as e:
-            print(f"[FAIL] Attempt {attempt} failed for {target}: {e}")
+            print(f"[FAIL] Attempt {attempt}: {e}")
             await asyncio.sleep(1)
 
-# ================= READY EVENT =================
+# ================= READY =================
 @bot.event
 async def on_ready():
     await bot.change_presence(status=discord.Status.online)
     await tree.sync()
 
     for guild in bot.guilds:
-        invite_cache[guild.id] = await guild.invites()
+        try:
+            invite_cache[guild.id] = await guild.invites()
+        except:
+            invite_cache[guild.id] = []
 
-    # ================= CONSOLE BANNER =================
-    print(f"""
-{r}███████ ███   ███
-{g}Bot is fully online
-{ora}{p} {s}- [{Fore.GREEN}+{s}] {wh}Logged in as {bot.user.name}
-{ora}{p} {s}- [{Fore.GREEN}+{s}] {wh}Nuke command is {p}!getdiddyed
-""")
+    print(f"{g}Bot online as {bot.user}")
 
-# ================= WHITELIST COMMANDS =================
-@tree.command(name="whitelist", description="Add user to whitelist")
+# ================= ERROR HANDLER =================
+@tree.error
+async def on_app_command_error(interaction, error):
+    try:
+        await interaction.response.send_message(
+            f"❌ Error: {error}", ephemeral=True
+        )
+    except:
+        pass
+
+# ================= WHITELIST =================
+@tree.command(name="whitelist")
 @app_commands.checks.has_permissions(administrator=True)
 async def whitelist_cmd(interaction: discord.Interaction, member: discord.Member):
     whitelist.add(member.id)
-    await interaction.response.send_message(
-        f"✅ {member.mention} added to whitelist.",
-        ephemeral=True
-    )
+    save_whitelist()
+    await interaction.response.send_message(f"✅ {member.mention} added", ephemeral=True)
 
-@tree.command(name="unwhitelist", description="Remove user from whitelist")
+@tree.command(name="unwhitelist")
 @app_commands.checks.has_permissions(administrator=True)
 async def unwhitelist_cmd(interaction: discord.Interaction, member: discord.Member):
     whitelist.discard(member.id)
-    await interaction.response.send_message(
-        f"❌ {member.mention} removed from whitelist.",
-        ephemeral=True
-    )
+    save_whitelist()
+    await interaction.response.send_message(f"❌ {member.mention} removed", ephemeral=True)
 
-@tree.command(name="whitelistlist", description="Show whitelist")
-@app_commands.checks.has_permissions(administrator=True)
+@tree.command(name="whitelistlist")
 async def whitelistlist_cmd(interaction: discord.Interaction):
     if not whitelist:
-        await interaction.response.send_message("Whitelist is empty.", ephemeral=True)
+        await interaction.response.send_message("Empty.", ephemeral=True)
         return
 
     names = []
@@ -111,45 +112,40 @@ async def whitelistlist_cmd(interaction: discord.Interaction):
 
     await interaction.response.send_message("\n".join(names), ephemeral=True)
 
-# ================= WELCOME / FAREWELL CHANNELS =================
-@tree.command(name="add_welcome", description="Set welcome channel")
-@app_commands.checks.has_permissions(administrator=True)
+# ================= CHANNEL SETUP =================
+@tree.command(name="add_welcome")
 async def add_welcome(interaction: discord.Interaction, channel: discord.TextChannel):
     welcome_channels[interaction.guild.id] = channel.id
-    await interaction.response.send_message(
-        f"Welcome messages set to {channel.mention}",
-        ephemeral=True
-    )
+    await interaction.response.send_message(f"Set to {channel.mention}", ephemeral=True)
 
-@tree.command(name="add_byebye", description="Set farewell channel")
-@app_commands.checks.has_permissions(administrator=True)
+@tree.command(name="add_byebye")
 async def add_byebye(interaction: discord.Interaction, channel: discord.TextChannel):
     farewell_channels[interaction.guild.id] = channel.id
-    await interaction.response.send_message(
-        f"Farewell messages set to {channel.mention}",
-        ephemeral=True
-    )
+    await interaction.response.send_message(f"Set to {channel.mention}", ephemeral=True)
 
 # ================= MEMBER JOIN =================
 @bot.event
 async def on_member_join(member):
     guild = member.guild
 
-    # --- Anti-bot-add protection ---
+    # Anti-bot add (safer)
     if member.bot:
         await asyncio.sleep(1)
         async for entry in guild.audit_logs(limit=5, action=discord.AuditLogAction.bot_add):
             if entry.target.id == member.id:
                 adder = entry.user
                 if adder.id not in whitelist:
-                    await ban_with_retry(guild, adder, "Attempted nuke")
-                    await ban_with_retry(guild, member, "Attempted nuke")
+                    print(f"[WARN] {adder} added bot {member}")
                 break
         return
 
-    # --- Welcome System ---
     inviter = "Unknown"
-    new_invites = await guild.invites()
+
+    try:
+        new_invites = await guild.invites()
+    except:
+        new_invites = []
+
     old_invites = invite_cache.get(guild.id, [])
 
     for new in new_invites:
@@ -164,25 +160,20 @@ async def on_member_join(member):
         channel = guild.get_channel(welcome_channels[guild.id])
         if channel:
             await channel.send(
-                f"{member.mention} was invited by {inviter}, "
-                f"{guild.name} has now {guild.member_count} members!"
+                f"{member.mention} invited by {inviter} | Members: {guild.member_count}"
             )
 
 # ================= MEMBER LEAVE =================
 @bot.event
 async def on_member_remove(member):
     guild = member.guild
-    inviter = "Unknown"
 
     if guild.id in farewell_channels:
         channel = guild.get_channel(farewell_channels[guild.id])
         if channel:
             await channel.send(
-                f"{member.mention} left the server, they were invited by {inviter}, "
-                f"{guild.name} now has {guild.member_count} members."
-)
-    
-# ===== RUN =====
-keep_alive()
+                f"{member.mention} left | Members: {guild.member_count}"
+            )
+
+# ================= RUN =================
 bot.run(TOKEN)
-            
