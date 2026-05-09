@@ -1,3 +1,4 @@
 discord.py
 asyncio
 colorama
+python-dotenv
