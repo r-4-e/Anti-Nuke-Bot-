@@ -4,6 +4,11 @@ import random
 from discord import app_commands
 from discord.ext import commands
 from colorama import Fore, init
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+TOKEN = os.getenv("TOKEN")
 
 # ================= COLORAMA SETUP =================
 init(autoreset=True)
