@@ -1,3 +1,11 @@
+import discord
+import asyncio
+import random
+from discord import app_commands
+from discord.ext import commands
+from colorama import Fore, init
+import os
+from dotenv import load_dotenv
 from flask import Flask
 from threading import Thread
 
