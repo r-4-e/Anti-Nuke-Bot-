@@ -1,15 +1,24 @@
-import discord
-import asyncio
-import random
-from discord import app_commands
-from discord.ext import commands
-from colorama import Fore, init
-import os
-from dotenv import load_dotenv
+from flask import Flask
+from threading import Thread
 
+# ================= LOAD ENV =================
 load_dotenv()
 TOKEN = os.getenv("TOKEN")
 
+# ================= KEEP ALIVE / OPEN PORT =================
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot is running!"
+
+def run_web():
+    app.run(host='0.0.0.0', port=8080)
+
+def keep_alive():
+    t = Thread(target=run_web)
+    t.start()
+    
 # ================= COLORAMA SETUP =================
 init(autoreset=True)
 r   = Fore.RED
@@ -287,4 +296,6 @@ async def on_member_remove(member):
             )
 
 # ================= RUN =================
+keep_alive()
 bot.run(TOKEN)
+
