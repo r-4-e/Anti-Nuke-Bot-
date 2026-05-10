@@ -27,6 +27,7 @@ def keep_alive():
     t = Thread(target=run_web)
     t.start()
     
+
 # ================= COLORAMA SETUP =================
 init(autoreset=True)
 r   = Fore.RED
@@ -301,8 +302,8 @@ async def on_member_remove(member):
         if channel:
             await channel.send(
                 f"{member.mention} left the server. {guild.name} now has {guild.member_count} members."
-            )
-
+                      )
+            
 # ================= RUN =================
 keep_alive()
 bot.run(TOKEN)
