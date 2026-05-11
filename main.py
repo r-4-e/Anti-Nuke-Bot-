@@ -253,6 +253,141 @@ async def hero(interaction: discord.Interaction, name: str):
         f"📖 **{name.title()}**\n{entry}", ephemeral=True
     )
 
+
+# ================= UNBAN ALL =================
+@tree.command(name="unban", description="Unban everyone in the server")
+@app_commands.checks.has_permissions(ban_members=True)
+async def unban_all(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    await interaction.followup.send("🔓 Unbanning everyone, please wait...", ephemeral=True)
+
+    success = 0
+    failed = 0
+
+    async for ban_entry in interaction.guild.bans():
+        try:
+            await interaction.guild.unban(ban_entry.user)
+            success += 1
+        except Exception as e:
+            failed += 1
+            print(f"[UNBAN] Failed for {ban_entry.user}: {e}")
+
+    await interaction.followup.send(
+        f"✅ Done! Unbanned: **{success}** | Failed: **{failed}**", ephemeral=True
+    )
+
+# ================= CREATE CHANNEL(S) IN CATEGORY =================
+@tree.command(name="createchan", description="Create channels inside a category (creates category if it doesn't exist)")
+@app_commands.checks.has_permissions(manage_channels=True)
+@app_commands.describe(
+    category="Name of the category to put channels in",
+    channels="Comma-separated list of channel names e.g. announcements, rules, tos"
+)
+async def createchan(interaction: discord.Interaction, category: str, channels: str):
+    guild = interaction.guild
+
+    # Find existing category with same name (case-insensitive)
+    existing_category = discord.utils.find(
+        lambda c: c.name.lower() == category.lower(),
+        guild.categories
+    )
+
+    if existing_category:
+        target_category = existing_category
+    else:
+        try:
+            target_category = await guild.create_category(category)
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Failed to create category: {e}", ephemeral=True)
+            return
+
+    # Parse channel names
+    channel_names = [c.strip() for c in channels.split(",") if c.strip()]
+
+    if not channel_names:
+        await interaction.response.send_message("❌ No valid channel names provided.", ephemeral=True)
+        return
+
+    created = []
+    failed = []
+
+    for name in channel_names:
+        try:
+            await guild.create_text_channel(name, category=target_category)
+            created.append(name)
+        except Exception as e:
+            failed.append(name)
+            print(f"[CREATECHAN] Failed to create #{name}: {e}")
+
+    msg = f"✅ Created **{len(created)}** channel(s) in **{target_category.name}**"
+    if created:
+        msg += f"\n✔ {', '.join(f'#{n}' for n in created)}"
+    if failed:
+        msg += f"\n❌ Failed: {', '.join(failed)}"
+
+    await interaction.response.send_message(msg, ephemeral=True)
+
+
+
+# ================= UNBAN & DM =================
+@tree.command(name="banned_dms", description="Unban everyone and attempt to DM them via mutual servers")
+@app_commands.checks.has_permissions(ban_members=True)
+@app_commands.describe(message="The message (e.g. invite link) to send to unbanned users")
+async def banned_dms(interaction: discord.Interaction, message: str):
+    guild = interaction.guild
+
+    await interaction.response.defer(ephemeral=True)
+    await interaction.followup.send("🔓 Scanning banned members and attempting to unban + DM them...", ephemeral=True)
+
+    # Collect all banned users first
+    banned_users = []
+    async for ban_entry in guild.bans():
+        banned_users.append(ban_entry.user)
+
+    if not banned_users:
+        await interaction.followup.send("No banned members found.", ephemeral=True)
+        return
+
+    unbanned = 0
+    dm_success = 0
+    dm_failed = 0
+
+    for user in banned_users:
+        # Unban first
+        try:
+            await guild.unban(user)
+            unbanned += 1
+        except Exception as e:
+            print(f"[BANNED_DMS] Failed to unban {user}: {e}")
+            continue
+
+        # Try to DM via mutual servers
+        dm_sent = False
+        for mutual_guild in bot.guilds:
+            if mutual_guild.id == guild.id:
+                continue
+            mutual_member = mutual_guild.get_member(user.id)
+            if mutual_member:
+                try:
+                    await mutual_member.send(message)
+                    dm_sent = True
+                    print(f"[BANNED_DMS] DMed {user} via {mutual_guild.name}")
+                    break
+                except Exception as e:
+                    print(f"[BANNED_DMS] DM failed for {user} via {mutual_guild.name}: {e}")
+
+        if dm_sent:
+            dm_success += 1
+        else:
+            dm_failed += 1
+
+        await asyncio.sleep(random.randint(2, 5))
+
+    await interaction.followup.send(
+        f"✅ Done!\n🔓 Unbanned: **{unbanned}**\n📨 DMed: **{dm_success}** | Unreachable: **{dm_failed}**",
+        ephemeral=True
+    )
+
 # ================= MEMBER JOIN =================
 @bot.event
 async def on_member_join(member):
@@ -276,11 +411,15 @@ async def on_member_join(member):
         new_invites = await guild.invites()
         old_invites = invite_cache.get(guild.id, [])
 
+        found = False
         for new in new_invites:
             for old in old_invites:
                 if new.code == old.code and new.uses > old.uses:
                     inviter = new.inviter.mention if new.inviter else "Unknown"
+                    found = True
                     break
+            if found:
+                break
 
         invite_cache[guild.id] = new_invites
     except Exception:
@@ -302,7 +441,7 @@ async def on_member_remove(member):
         if channel:
             await channel.send(
                 f"{member.mention} left the server. {guild.name} now has {guild.member_count} members."
-                      )
+    )
             
 # ================= RUN =================
 keep_alive()
